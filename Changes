@@ -28,3 +28,9 @@ Revision history for Perl extension Net::Dev::Tools::MIB::MIBLoadOrder.
 
 
 
+1.0.0 8/9/2004
+       - Consider first release
+       - Changed the DEFINITION and IMPORT parser
+          - grab DEF and IMPORT as chunks, then parse the chunck
+       - Eliminated -singlefile option
+          - if a DEF is found in more than one file, function errors out

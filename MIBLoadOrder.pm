@@ -6,6 +6,12 @@
 #
 # Look at end of file for all POD
 #
+#
+#  8/5/2004  v1.0.0 (sparsons)
+#            - changed the DEFINITION and IMPORT parser
+#                - grab DEF and IMPORT as chunks, then parse the chunck
+#            - took out -singlefile option
+#              - if a DEF is found in more than one file, function errors out
 
 package Net::Dev::Tools::MIB::MIBLoadOrder;
 
@@ -13,7 +19,7 @@ use strict;
 
 BEGIN {
    use Exporter();
-   our $VERSION = 0.9.2;
+   our $VERSION = '1.0.0';
    our @ISA = qw(Exporter);
 
    our @EXPORT        = qw(
@@ -86,7 +92,6 @@ sub mib_load {
       elsif ($_arg =~ /^-?exclude$/i)          {next;}
       elsif ($_arg =~ /^-?track$/i)            {$_TRACK_FLAG = delete($ARGS{$_arg});}
       elsif ($_arg =~ /^-?prioritize$/i)       {$_PRIORITY   = delete($ARGS{$_arg});}
-      elsif ($_arg =~ /^-?singlefile$/i)       {$_SINGLE     = delete($ARGS{$_arg});}
       elsif ($_arg =~ /^-?maxloops$/i)         {$_max_loops  = delete($ARGS{$_arg});}
       elsif ($_arg =~ /^-?debug$/i)            {$DEBUG       = delete($ARGS{$_arg});}
       else  {
@@ -300,13 +305,13 @@ sub _scan_file_list {
 #     success = 1 or undef
 #
 sub _parse_mib_file {
+   my ($_def, $_import, $_lastline);
    my $_definition_count = 0;
    my $_definition       = undef;
-   my $_import_flag      = '0';
-   my $_import           = undef;
-   my $_import_count     = 0;
+   my $_import_flag      = 0;
    my $_excl;
    my $_match            = 0;
+   my %_DEF              = ();
 
    $ERROR = "$_[0]: failed to parse mib file"; 
 
@@ -334,67 +339,111 @@ sub _parse_mib_file {
       if (/^--/)     {next;}
       if (/^\s+--/)  {next;}
       # parse out definitions
-      if (/([\w\d-]+)\b\s+DEFINITIONS\s+::=\s+BEGIN/) {
-         $_definition = $1;
-         $_definition_count++;
-         _myprintf("   DEFINITION parsed: line %-4s count: %3s %s [%s]\n", 
-            $., $_definition_count, $_TYPE, $_definition
-         );
-         _track_it("$_definition", "defined in [$_[0]], line: $. type: $_TYPE");
-         # error out if more than one definition per file
-         if ($_definition_count > 1) {
-            $ERROR = "multiple DEFINITION in $_[0]";
-            close(MIB);
-            return (undef);
-         }
-         push(@{$DEFINITIONS{$_definition}{files}}, $_[0]);
-         $DEFINITIONS{$_definition}{type} = $_TYPE;
-         _track_it("$_definition", "adding $_TYPE [$_[0]] to file list");
-      }
-      # Detect IMPORTS, enable parsing
-      if (/^IMPORTS/) {
-         if (!$_definition) {
-            $ERROR = "IMPORTS found before DEFINITION: line $. $_[0]";
-            return (undef);
-         }
-         $_import_flag = 1;
-      }
-      # parse out IMPORTS
-      if ($_import_flag) {
-         if ( /FROM.+FROM/ ) {
-            $ERROR = sprintf("multiple FROMs at line %s of file %s", $., $_[0]);
-            close(MIB);
-            return (undef);
-         }
-         if (/FROM\s+\b(.+)\b/) {
-             $_import = $1;
-             push(@{$DEFINITIONS{$_definition}{imports}}, $_import);
-             _myprintf("   IMPORT parsed:     line %-4s  %3s imports [%s]\n", 
-                $., scalar(@{$DEFINITIONS{$_definition}{imports}}),  $_import
-             );
-             _track_it("$_definition", "requires IMPORT $_import, line: $.");
-             _track_it("$_import", "required import for $_definition");
-         }
+      if (/DEFINITIONS/) {
+         if (/\b([A-Z][\-?\w]{0,63})\b\s+DEFINITIONS\s+::=\s+BEGIN/ )
+            {$_def = $1;}
+         else {
+            if (join(' ', $_lastline, $_) =~ /\b([A-Z][\-?\w]{0,63})\b\s+DEFINITIONS\s+::=\s+BEGIN/m)
+               {$_def= $1;}
+         } 
+         unless ($_def =~ /--/) {
+            $_definition = $_def;
+            $_definition_count++;
+            $_import_flag = 0;
+            _myprintf("   DEFINITION parsed: line %-4s count: %3s %s [%s]\n",
+               $., $_definition_count, $_TYPE, $_definition
+            );
+            _track_it("$_definition", "defined in [$_[0]], line: $. type: $_TYPE");
+            # see if DEF already known in other file
+            if (defined($DEFINITIONS{$_definition}{file})) {
+               $ERROR = sprintf("file: %s DEF: %s previously defined in: %s",
+                        $_[0], $_definition, $DEFINITIONS{$_definition}{file}
+               );
+               return(undef);
+            }
 
+            # set warning if more than one DEF per file
+            if ($_definition_count > 1) {
+               $WARNING = "multiple DEFINITIONs in $_[0]";
+               push(@WARNINGS, ['_FILE_', $WARNING] );
+            }
+            $DEFINITIONS{$_definition}{file} = $_[0];
+            $DEFINITIONS{$_definition}{type}  = $_TYPE;
+
+            _track_it("$_definition", "adding $_TYPE [$_[0]] to file list");
+
+         }
       }
-      # disable IMPORT parse when we see a ';'
-      if ($_import_flag) {
-         if    (/;/)       {$_import_flag = 0;}
-         elsif (/;$/)      {$_import_flag = 0;}
-         elsif (/;\s+$/)   {$_import_flag = 0;}
-         elsif (/\w;/)     {$_import_flag = 0;}
-         else              {$_import_flag = 1;}
-         # clear the definition after import section
-         if ($_import_flag == 0) {$_definition = undef;}
+      # we only want to extract IMPORT chunk
+      # so detect when the construct is on the current lines
+      if (/IMPORTS\s+/)  {$_import_flag = 1;}
+
+      # find end of DEFINITIONS
+      if (/^END\s*$/) {
+         # make sure we have hash entry for those with no imports
+         if (!exists($_DEF{$_definition})) {$_DEF{$_definition} = '';}
+         $_definition  = undef;
+         $_import_flag = 0;
       }
+
+      # $_DEF{$_definition} will be a chunk that has the IMPORTS
+      if ($_definition && $_import_flag == 1) {
+         $_DEF{$_definition} = join('', $_DEF{$_definition}, $_);
+         $_import_flag = 0 if /;/;
+      }
+
+      $_lastline = $_;
    }
    close(MIB);
+
    # if no definition found, issue warning
    if ($_definition_count == 0) {
       $WARNING = sprintf("No DEFINITION parsed in: [%s]", $_[0]);
       push(@WARNINGS, ['_FILE_', $WARNING] );
+      return(1);
    }
 
+   # get the IMPORTS
+   foreach $_definition (sort keys %_DEF) {
+      _myprintf("   IMPORT check       check [%s] for imports\n", $_definition);
+      # check to see if import block was parsed
+      if ($_DEF{$_definition} eq "") {
+         $WARNING = sprintf("No IMPORTS parsed in: [%s]", $_[0]);
+         push(@WARNINGS, ['_FILE_', $WARNING] );
+         _myprintf("   IMPORT parsed:     WARN: no imports parsed\n");
+      } 
+      # extract info from import block
+      else {
+         $_DEF{$_definition} =~ /IMPORTS\s+(.+[A-Z][\w\-?]{0,63})\s*;/s;
+         $_ = $1;
+         # parse out moduleIdentifier (after 'FROM') 
+         @{$DEFINITIONS{$_definition}{imports}} = m/FROM\s+([A-Z][\w\-]{0,63})/sg;
+         _myprintf("   IMPORT parsed:     count: %s  def: %s  block size: %s\n",
+            scalar(@{$DEFINITIONS{$_definition}{imports}}),
+            $_definition,
+            length($_DEF{$_definition}),
+         );
+         if (@{$DEFINITIONS{$_definition}{imports}}) {
+            _myprintf("   IMPORT parsed:     [%s]\n", 
+               join(', ', @{$DEFINITIONS{$_definition}{imports}})
+            );
+            if ($_TRACK_FLAG) {
+               foreach $_import (@{$DEFINITIONS{$_definition}{imports}}) {
+                  _track_it("$_definition", "requires IMPORT $_import");
+                  _track_it("$_import", "required import for $_definition");
+               }
+            }
+         }
+         else {
+            _myprintf("   IMPORT parsed:     NONE: [%s] in chunk\n", $_definition);
+            $WARNING = sprintf("No IMPORTS parsed from IMPORT chunk: [%s]", $_definition);
+            push(@WARNINGS, ['_FILE_', $WARNING]); 
+            _track_it("$_definition", "no IMPORTS parsed from IMPORT chunk");
+         }
+      }
+
+
+   }
    return(1);
 }   # end _parse_mib_file
 
@@ -439,6 +488,7 @@ sub _compute_definition_weights {
          # foreach import required, add $_import_weight to the import's definition
          foreach $_imp (@{$DEFINITIONS{$_def}{imports}}) {
              $DEFINITIONS{$_imp}{weight} = $DEFINITIONS{$_imp}{weight} + $_import_weight;
+             $DEFINITIONS{$_imp}{'import'}++;
              _myprintf("  Weight: required IMPORT: [%s] incr %s, weight = %s\n",
                   $_imp, $_import_weight, $DEFINITIONS{$_imp}{weight}
              );
@@ -646,24 +696,9 @@ sub _find_warnings {
    my $_f;
    
    foreach $_def (sort keys %DEFINITIONS) {
-      if ( !defined(@{$DEFINITIONS{$_def}{files}}) ) {
+      if ( !defined($DEFINITIONS{$_def}{file}) ) {
          push(@WARNINGS, ["$_def", "$_no_file"]);
          _track_it("$_def", "issue warning: $_no_file");
-      }
-      if ( scalar(@{$DEFINITIONS{$_def}{files}}) > 1 ) {
-          push(@WARNINGS, ["$_def", "$_multi_files"]);
-          _track_it("$_def", "issue warning: $_multi_files");
-          # just keep one file if desired
-          if ($_SINGLE == 1) { 
-             ($_keep, @_dump) = @{$DEFINITIONS{$_def}{files}};
-             @{$DEFINITIONS{$_def}{files}} = $_keep;
-             _track_it("$_def", "keep only 1 file: $_keep");
-             foreach $_f (@_dump) {
-                _myprintf("multiple files: removed [%s]\n", $_f);
-                _track_it("$_def", "remove file from list: $_f");
-                 push(@WARNINGS, ["$_def", "remove file from list: $_f"]); 
-             }
-          } 
       }
    }
    1;
@@ -727,7 +762,7 @@ Net::Dev::Tools::MIB::MIBLoadOrder - Parse MIB files and determine MIB Load Orde
 
 =head1 VERSION
 
-Net::Dev::Tools::MIB::MIBLoadOrder Version 0.9.2
+Net::Dev::Tools::MIB::MIBLoadOrder Version 1.0.0
 
 =head1 SYNOPSIS
 
@@ -739,7 +774,6 @@ Net::Dev::Tools::MIB::MIBLoadOrder Version 0.9.2
        -Extensions      =>  %FileExtensions,
        -track           =>  0|1,
        -prioritize      =>  0|1,
-       -singlefile      =>  0|1,
        -maxloops        =>  Integer,
        -debug           =>  0|1,
     );
@@ -795,96 +829,89 @@ No special requirements.
        -exclude         =>  \@ExcludePatterns,
        -track           =>  0|1,
        -prioritize      =>  0|1,
-       -singlefile      =>  0|1,
        -maxloops        =>  Integer,
        -debug           =>  0|1,
     );
 
-    The mib_load function will return in array context, a reference to an ordered
-    list of MIB DEFINITIONs, integer value of warnings, the last error.
-    In scalar context, just a reference to an ordered list of MIB DEFINITIONs.
-    If error, $load, $warn are undefined and $error is true, it is a character string
-    describing the error.
+The mib_load function will return in array context, a reference to an ordered
+list of MIB DEFINITIONs, integer value of warnings, the last error.
+In scalar context, just a reference to an ordered list of MIB DEFINITIONs.
+If error, $load, $warn are undefined and $error is true, as it is a character 
+string describing the error.
 
 At least one argument, StandardMIBs or EnterpriseMIBs, is needed.
-The rest will default values.
+The rest will get default values.
 The intent of these two different arguments is to allow the user
 to maintain their own location of Standard MIBs, then if a vendors
-set of MIB files also include Standard MIB's, the Load Order determined
-with this method can be configured to only list the 'first file found',
-thus the StandardMIBs locations.
+set of MIB files also include Standard MIB's. 
 
 Or this can be used to assure that certain files are put in the order first.
 StandardMIBs is search before EnterpriseMIBs. As a DEFINITION is found, the
-file that it was found in is stored with that DEFINITION. It is possible for
-a DEFINITION to be found in multiple files, it is the responsibility of the 
-user to know how they want to handle this situation.
+file that it was found in is stored with that DEFINITION. Multiple DEFINITIONs
+can be in one file, multiple files can not contain the same DEFINITION, in this
+case the function is aborted.
+
 
 
 =over 4
 
-=item StandardMIBs
+=item -StandardMIBs
 
-    Reference to list of directories and/or files that define 
-    Standard MIBs. Read before EnterpriseMIBs.
+Reference to list of directories and/or files that define 
+Standard MIBs. Read before EnterpriseMIBs.
 
-=item EnterpriseMIBs
+=item -EnterpriseMIBs
 
-    Reference to list of directories and/or files that define 
-    Enterprise MIBs. Read after StandardMIBs.
+Reference to list of directories and/or files that define 
+Enterprise MIBs. Read after StandardMIBs.
 
-=item Extensions
+=item -Extensions
 
-    Reference to list of file extensions.
-    Files with any of these extensions are parsed.
+Reference to list of file extensions.
+Files with any of these extensions are parsed.
+Default extension is 'mib'. If you define any 
+file extensions then 'mib' is not include, you will
+have to include this in your list.
 
-=item exclude
+=item -exclude
 
-    Reference to a list of patterns, if a pattern is matched in
-    in a filename, that file will not be parsed for DEFINITION.
+Reference to a list of patterns, if a pattern is matched in
+a filename, that file will not be parsed for DEFINITION.
 
 
-=item track
+=item -track
 
-    Flag to enable or disable tracking.
-    0 disable tracking, default is 0.
-    Tracking is down per MIB DEFINITION, each time an action
-    is applied to a DEFINITION, the action is recorded in
-    a public accessible hash.
+Flag to enable or disable tracking.
+0 disable tracking, default is 0.
+Tracking is done per MIB DEFINITION, each time an action
+is applied to a DEFINITION, the action is recorded in
+a public accessible hash.
 
-=item prioritize
+=item -prioritize
 
-    Flag to enable or disable prioritization.
-    0 disable prioritization, default is 0.
-    Prioritization trys to place all DEFINITIONs found in 
-    StandardMIBs before any found in EnterpriseMIBs when 
-    calculating weights. The highest weight applied to an 
-    EnterpriseMIBs is found, all StandardMIBs are then made 1 
-    greater than this, if not already greater. This does not 
-    corrupt load order, if a StandardMIBs DEFINITION still needs 
-    the EnterpriseMIBs DEFINITION loaded, this will be done.
+Flag to enable or disable prioritization.
+0 disables prioritization, default is 0.
+Prioritization trys to place all DEFINITIONs found in 
+@StandardMIBs before any found in @EnterpriseMIBs when 
+calculating weights. The highest weight applied to an 
+EnterpriseMIBs is found, all StandardMIBs are then made 1 
+greater than this, if not already greater. This does not 
+corrupt load order, if a StandardMIBs DEFINITION still needs 
+the EnterpriseMIBs DEFINITION loaded, this will be done.
 
-=item singlefile
 
-    Only store a single file for a DEFINITION.
-    1 enables this feature, default is 1.
-    If a DEFINITION is found in more than one file, only the first
-    file found with the DEFINITION is kept, all other files are 
-    not stored. The first file found will be influenced by the 
-    order of StandardMIBs list items, then EnterpriseMIBs.
+=item -maxloops
 
-=item maxloops
+The max number of times to sort weights.
+Default value is 1000.
+This allows the user to prevent continous loops.
+If max number is reached, no Load Order is determined.
 
-    The max number of times to sort weights.
-    Default value is 1000.
-    This allows the user to prevent continous loops.
-    If max number is reached, no Load Order is determined.
+=item -debug
 
-=item debug
-
-    Flag to enable or disable debugging to STDOUT.
-    0 disables debugging, default is 0.
-    1 enables debugging.
+Flag to enable or disable debugging to STDOUT.
+0 disables debugging, default is 0.
+1 enables debugging.
 
 =back
 
@@ -893,15 +920,15 @@ user to know how they want to handle this situation.
 =head3 Load Order
 
     Direct Access
-        @Net::Dev::Tools::MIB::MIBLoadOrder::@LOAD_ORDER
+        @Net::Dev::Tools::MIB::MIBLoadOrder::LOAD_ORDER
 
     Function, returns a reference to array.
         mib_load_order()
 
     Array syntax
-        (DEFINITION, DEFINITION, DEFINITION, ....)
+        (modName, modName, modName, ...)
 
-=head3 MIB Definitions
+=head3 MIB Definitions (modName)
 
     Direct Access
         %Net::Dev::Tools::MIB::MIBLoadOrder::DEFINITIONS
@@ -910,8 +937,9 @@ user to know how they want to handle this situation.
         mib_load_definitions()
 
     Hash Syntax
-        %DEFINITIONS{<definition>}{files}   = (file, file, ....)
+        %DEFINITIONS{<definition>}{file}    = file containing definition
         %DEFINITIONS{<definition>}{type}    = Standard | Enterprise
+        %DEFINITIONS{<definition>}{import}  = number of times imported
         %DEFINITIONS{<definition>}{imports} = (DEFINITION, DEFINITION, ...)
         %DEFINITIONS{<definition>}{weight}  = calculated weight
 
@@ -985,7 +1013,7 @@ Each file stored is then parsed for DEFINITIONs and IMPORTs.
 If -exclude is defined and the file matches any string in the 
 exclude list, that file is not parsed, a warning is issued, denoted as _EXCL_.
 If no DEFINITION is found, a warning is stored, denoted as _FILE_.
-If more than one DEFINTITION is found in a file, error is returned.
+If more than one file contains the same DEFINTITION (modName) an error is returned.
 
 Weights are determined per DEFINITION. 
 Each DEFINITION is  assigned a weight of 2.
@@ -1002,8 +1030,7 @@ is made one greater than the highest EnterpriseMIB weight.
 
 All DEFINITIONs are check for warnings.
 If no files are stored for a DEFINITION, a warning is issued.
-If a DEFINITION has more than one file, a warning is issued, 
-and if -singlefile is true (1), than only the first file is kept. 
+If a DEFINITION is in more than one file, an error would of been returned.  
 If files are dumped a warning is issued.
 
 Enter a loop to sort all weights. Each DEFINITION is examined, 
@@ -1013,9 +1040,9 @@ if a DEFINITION has this weight, check that all its IMPORTS have a weight
 greater than the current weight. If a IMPORT DEFINITION has a lower weight
 then change its weight to one more than the current DEFINITIONs weight and 
 re-start the loop. This loop will continue until all DEFINITIONs have
-IMPORTS with higher weights. Once this is complete, the method exits
+IMPORTS with higher weights. Once this is complete, the function exits
 as successful. If -maxloops is exceeded before the loop can complete
-the method exits with error. If successful, the user can now access
+the function exits with error. If successful, the user can now access
 load order info.
 
 
@@ -1025,7 +1052,7 @@ load order info.
 
     #!/usr/bin/perl
     #
-    # Purpose:  Script to test mib load order module
+    # Net::Dev::Tools::MIB::MIBLoadOrder example using direct access
     #
     
     use strict;
@@ -1033,63 +1060,85 @@ load order info.
     
     our $MIBLOAD;
     
-    my $track = 0;
+    my $track    = 0;
+    my $prio     = 0;
+    my $maxloop  = 100;
+    my $debug    = 0;
     
     my ($error, $warn, $def, $file, $trace);
-    my @standard_mibs   = ('/usr/local/share/mibs/fore/Standard',
-                           '/usr/local/share/snmp/mibs',
+    
+    # set location of mibs
+    # standard mib files
+    my @standard_mibs   = ('./mibs/std');
+    # enterprise mib files
+    my @enterprise_mibs = ('./mibs/fore',
+                           './mibs/marconi'
     );
-    my @enterprise_mibs = ('/usr/local/share/mibs/fore/Enterprise');
+    # set desired extensions
     my @extensions      = ('mib', 'txt');
+    
+    #determine load order
     ($MIBLOAD, $warn, $error) = mib_load(
-       StandardMIBs   => \@standard_mibs, 
+       StandardMIBs   => \@standard_mibs,
        EnterpriseMIBs => \@enterprise_mibs,
        Extensions     => \@extensions,
        track          => $track,
-       prioritize     => '0',
-       singlefile     => '1',
-       maxloops       => '100',
-       debug          => '0',
+       prioritize     => $prio,
+       maxloops       => $maxloop,
+       debug          => $debug,
     );
     
+    # check for failure
     unless ($MIBLOAD) {
-       printf("Method failed: %s\n",  $error);
+       printf("mib_load function failed: %s\n",  $error);
        exit(1);
     }
+    # check for warinings
     if ($warn) {
        printf("Warnings\n");
-       foreach (@Net::Dev::Tools::MIB::MIBLoadOrder::WARNINGS) 
+       foreach (@Net::Dev::Tools::MIB::MIBLoadOrder::WARNINGS)
           {printf("   %-20s  %s\n", $_->[0], $_->[1]);}
     }
-    print "="x79, "\n";
+    print "="x79, "\n\n";
     
+    # print load order
+    printf("Load Order:\n");
     foreach $def (@{$MIBLOAD}) {
-       printf("%-35s %-10s [%s]  ", 
+       printf("   %-35s  %-12s imported: %4s  weight: %9s  %s\n",
           $def,
-          $Net::Dev::Tools::MIB::MIBLoadOrder::DEFINITIONS{$def}{type} || '-', 
-          $Net::Dev::Tools::MIB::MIBLoadOrder::DEFINITIONS{$def}{weight}
-       );
-       if (@{$Net::Dev::Tools::MIB::MIBLoadOrder::DEFINITIONS{$def}{files}}) {
-          foreach  $file (@{$Net::Dev::Tools::MIB::MIBLoadOrder::DEFINITIONS{$def}{files}}) 
-             {printf("%s\n", $file);}
-       }
-       else 
-          {printf("--\n");}
+          $Net::Dev::Tools::MIB::MIBLoadOrder::DEFINITIONS{$def}{type}   || '-',
+          $Net::Dev::Tools::MIB::MIBLoadOrder::DEFINITIONS{$def}{import} || 0,
+          $Net::Dev::Tools::MIB::MIBLoadOrder::DEFINITIONS{$def}{weight} || 0,
+          $Net::Dev::Tools::MIB::MIBLoadOrder::DEFINITIONS{$def}{file}   || 'noFile',
     
-       if ($track) {
-           foreach $trace (@{$Net::Dev::Tools::MIB::MIBLoadOrder::TRACK_HASH{$def}} ) 
-               {printf("\t    %-4s %s\n", $trace->[0], $trace->[1]);} 
+       );
+       # show the imports for current definition
+       if ($track == 1) {
+          foreach ( @{$Net::Dev::Tools::MIB::MIBLoadOrder::DEFINITIONS{$def}{imports}} ) {
+             printf("%52s %-23s %9s imported\n",
+                '',
+                $_,
+                $Net::Dev::Tools::MIB::MIBLoadOrder::DEFINITIONS{$_}{weight}|| '0',
+             );
+          }
+          printf("\n");
+       }
+    
+       # show trace for current definition
+       if ($track == 2) {
+           foreach $trace (@{$Net::Dev::Tools::MIB::MIBLoadOrder::TRACK_HASH{$def}} )
+               {printf("\t    trace:  index %-9s event: %s\n", $trace->[0], $trace->[1]);}
            }
     }
-
+    
     exit(0);
-
 
 =head2 Determine Load Order, use reference to variables
 
     #!/usr/bin/perl
     #
-    # Purpose:  Script to test mib load order module
+    # Net::Dev::Tools::MIB::MIBLoadOrder example using functions
+    # to access data
     #
     
     use strict;
@@ -1097,65 +1146,85 @@ load order info.
     
     our $MIBLOAD;
     
-    my $track = 0;
+    my $track    = 2;
+    my $prio     = 0;
+    my $maxloop  = 100;
+    my $debug    = 0;
     
-    
-    my ($lo_ref, $ld_ref, $lt_ref, $lw_ref);
-    my ($error, $warn, $def, $file, $trace);
-    my @standard_mibs   = ('/usr/local/share/mibs/fore/Standard',
-                           '/usr/local/share/snmp/mibs',
+    my ($error, $warn, $def, $file, $trace,
+        $modName_href,
+        $warn_aref,
+        $trace_href,
     );
-    my @enterprise_mibs = ('/usr/local/share/mibs/fore/Enterprise');
+    
+    # set location of mibs
+    # standard mib files
+    my @standard_mibs   = ('./mibs/std');
+    # enterprise mib files
+    my @enterprise_mibs = ('./mibs/fore',
+                           './mibs/marconi'
+    );
+    # set desired extensions
     my @extensions      = ('mib', 'txt');
     
-    
-    my @exclude = ('foobar');
+    # determine load order
     ($MIBLOAD, $warn, $error) = mib_load(
-       StandardMIBs   => \@standard_mibs, 
+       StandardMIBs   => \@standard_mibs,
        EnterpriseMIBs => \@enterprise_mibs,
        Extensions     => \@extensions,
        track          => $track,
-       prioritize     => '1',
-       singlefile     => '0',
-       maxloops       => '100',
-       exclude        => \@exclude,
-       debug          => '0',
+       prioritize     => $prio,
+       maxloops       => $maxloop,
+       debug          => $debug,
     );
     
+    # check for failure
     unless ($MIBLOAD) {
-       printf("Method failed: %s\n",  $error);
+       printf("mib_load function failed: %s\n",  $error);
        exit(1);
     }
+    
+    $modName_href   = &mib_load_definitions;
+    $warn_aref      = &mib_load_warnings;
+    $trace_href     = &mib_load_trace;
+    
+    # check for warinings
     if ($warn) {
-       $lw_ref = mib_load_warnings();
        printf("Warnings\n");
-       foreach (@{$lw_ref}) {printf("   %-20s  %s\n", $_->[0], $_->[1]);}
+       foreach (@{$warn_aref})
+          {printf("   %-20s  %s\n", $_->[0], $_->[1]);}
     }
-    print "="x79, "\n";
+    print "="x79, "\n\n";
     
-    $lo_ref = mib_load_order();
-    $ld_ref = mib_load_definitions();
-    $lt_ref = mib_load_trace();
-    
-    foreach $def (@{$lo_ref}) {
-       printf("%-35s %-10s [%s]  ", 
+    # print load order
+    printf("Load Order:\n");
+    foreach $def (@{$MIBLOAD}) {
+       printf("   %-35s  %-12s imported: %4s  weight: %9s  %s\n",
           $def,
-          $ld_ref->{$def}{type} || '-', 
-          $ld_ref->{$def}{weight}
+          $modName_href->{$def}{type}   || '-',
+          $modName_href->{$def}{import} || 0,
+          $modName_href->{$def}{weight} || 0,
+          $modName_href->{$def}{file}   || 'noFile',
+    
        );
-       if (@{$ld_ref->{$def}{files}}) {
-          foreach  $file (@{$ld_ref->{$def}{files}}) 
-             {printf("%s\n", $file);}
+       # show the imports for current definition
+       if ($track == 1) {
+          foreach ( @{$modName_href->{$def}{imports}} ) {
+             printf("%52s %-23s %9s imported\n",
+                '',
+                $_,
+                $modName_href->{$_}{weight}|| '0',
+             );
+          }
+          printf("\n");
        }
-       else 
-          {printf("--\n");}
     
-       if ($track) {
-       foreach $trace (@{$lt_ref->{$def}} ) 
-          {printf("\t    %-4s %s\n", $trace->[0], $trace->[1]);} 
-       }
+       # show trace for current definition
+       if ($track == 2) {
+           foreach $trace (@{$trace_href->{$def}} )
+               {printf("\t    trace:  index %-9s event: %s\n", $trace->[0], $trace->[1]);}
+           }
     }
-    
     exit(0);
 
 
@@ -1165,7 +1234,7 @@ load order info.
 
 =head1 COPYRIGHT
 
-    Copyright (c) 2003 Scott Parsons All rights reserved.
+    Copyright (c) 2004 Scott Parsons All rights reserved.
     This program is free software; you may redistribute it 
     and/or modify it under the same terms as Perl itself.
 

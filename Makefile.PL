@@ -21,7 +21,7 @@ WriteMakefile(
    ABSTRACT      => 'Determine MIB load order for NMS',
    NAME          => 'Net::Dev::Tools::MIB::MIBLoadOrder',
    DISTNAME      => 'Net-Dev-MIBLoadOrder',
-   VERSION       => '0.9.2',
+   VERSION       => '1.0.0',
    dist          => { 
       CI       => 'ci -u -m\"Changes for v$(VERSION)\"',
       COMPRESS => 'gzip --best', 
