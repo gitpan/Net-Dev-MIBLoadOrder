@@ -1,6 +1,27 @@
 Revision history for Perl extension MIBLoadOrder.
 
-1.0.0  Fri Jul 11 2003
-       - original version
+0.9.0  8/29/2003
+       - First Beta Post
+
+0.9.1  9/2/2003
+       - Second Beta Post
+       - modified parsings for IMPORTS, was failing from finding
+         IMPORTS string in a description 
+       - minor doc changes
+
+diffs
+16c16
+<    our $VERSION = '0.9.1';
+---
+>    our $VERSION = '0.9.0';
+355c355
+<       if (/^IMPORTS/) {
+---
+>       if (/IMPORTS/) {
+730c730
+
+
+
+
 
 

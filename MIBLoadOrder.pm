@@ -2,7 +2,7 @@
 #
 # Purpose:  Determine load order of a group of MIB files
 #
-# Written:  6/18/2003, scott.parsons    
+# Written:  9/2/2003, sparsons@cpan.org 
 #
 # Look at end of file for all POD
 #
@@ -13,7 +13,7 @@ use strict;
 
 BEGIN {
    use Exporter();
-   our $VERSION = '0.9.0';
+   our $VERSION = '0.9.1';
    our @ISA = qw(Exporter);
 
    our @EXPORT        = qw(
@@ -352,7 +352,7 @@ sub _parse_mib_file {
          _track_it("$_definition", "adding $_TYPE [$_[0]] to file list");
       }
       # Detect IMPORTS, enable parsing
-      if (/IMPORTS/) {
+      if (/^IMPORTS/) {
          if (!$_definition) {
             $ERROR = "IMPORTS found before DEFINITION: line $. $_[0]";
             return (undef);
@@ -727,7 +727,7 @@ MIBLoadOrder - Parse MIB files and determine MIB Load Order.
 
 =head1 VERSION
 
-MIBLoadOrder Version 1.0.0
+MIBLoadOrder Version 0.9.1
 
 =head1 SYNOPSIS
 
@@ -1085,9 +1085,6 @@ load order info.
     exit(0);
 
 
-
-
-
 =head2 Determine Load Order, use reference to variables
 
     #!/usr/bin/perl
@@ -1164,15 +1161,12 @@ load order info.
 
 =head1 AUTHOR
 
-    sparsons
+    perlnetdev@netscape.net
 
 =head1 COPYRIGHT
 
     Copyright (c) 2003 Scott Parsons All rights reserved.
     This program is free software; you may redistribute it 
     and/or modify it under the same terms as Perl itself.
-
-
-
 
 =cut

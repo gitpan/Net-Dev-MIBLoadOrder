@@ -1,6 +1,6 @@
 # -*- mode: perl -*-
 # ============================================================================
-# $Id: Makefile.PL,v 4.5 2003/08/29 11:40:00 sparsons Exp $
+# $Id: Makefile.PL,v 4.5 2003/09/02 11:37:00 sparsons Exp $
 # Makefile for the Perl module Net::Dev::Tools::MIB::MIBLoadOrder.
 # Copyright (c) 1998-2003  Scott Parsons <sparsons@cpan.org>
 # All rights reserved.
@@ -21,7 +21,7 @@ WriteMakefile(
    ABSTRACT      => 'Determine MIB load order for NMS',
    NAME          => 'Net::Dev::Tools::MIB::MIBLoadOrder',
    DISTNAME      => 'Net-Dev-MIBLoadOrder',
-   VERSION       => '0.9.0',
+   VERSION       => '0.9.1',
    dist          => { 
       CI       => 'ci -u -m\"Changes for v$(VERSION)\"',
       COMPRESS => 'gzip --best', 
