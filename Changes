@@ -1,5 +1,12 @@
 Revision history for Perl extension Net::Dev::Tools::MIB::MIBLoadOrder.
 
+1.1.0 8/26/2004
+      - do not error when DEFINITION found in multiple files
+        just do warning, keep first file
+      - account for multiple BEGIN/END blocks within DEFINITION
+      - allow for no extensions with  'noExt'
+
+
 1.0.1 8/11/2004
        - changed MIB filehandle to be $MIB, reason being install failure
          on some platforms, MIB filehandle treated as bareword

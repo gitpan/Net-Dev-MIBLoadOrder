@@ -17,6 +17,13 @@
 #            - changed MIB filehandle to be $_MIB, reason being install failure
 #              on some platforms, MIB filehandle treated as bareword
 #
+#  8/26/2004 v1.1.0 (sparsons)
+#            - do not error when DEFINITION found in multiple files
+#              just do warning, keep first file
+#            - account for multiple BEGIN/END blocks
+#            - allow for no extensions --ext noExt
+#
+
 
 package Net::Dev::Tools::MIB::MIBLoadOrder;
 
@@ -24,7 +31,7 @@ use strict;
 
 BEGIN {
    use Exporter();
-   our $VERSION = '1.0.1';
+   our $VERSION = '1.1.0';
    our @ISA = qw(Exporter);
 
    our @EXPORT        = qw(
@@ -231,7 +238,7 @@ sub _scan_file_list {
    my ($_f, $_chk_ext, $_fullname, $_separator);
    my @_mib_files = ();
 
-   $ERROR = "$_chk_file: unable to scan";
+   $ERROR = "$_chk_file: no files";
 
    _myprintf("  Examining %s list item: [%s]\n", $_tag, $_chk_file);
    # see what our dir separator is
@@ -268,6 +275,15 @@ sub _scan_file_list {
               ) ;
             }
          }
+         # allow for no extensions
+         elsif ($FILE_EXT{'noExt'}) {
+            $_fullname = sprintf("%s%s%s", $_chk_file, $_separator, $_f);
+            $_match++;
+            push(@_mib_files, $_fullname);
+            _myprintf("  MIB file: %s: found: noExt [%s] [%s] \n",
+                  $_tag, $_f, $_fullname
+            ) ;
+         }
       }
       closedir(DIR);
    }
@@ -279,13 +295,18 @@ sub _scan_file_list {
          return(undef);
       }
       # check the file extension
-      if ($_chk_file =~ /\.(.+)$/) {
+      if ($_chk_file =~ /\w+\.(.+)$/) {
          $_chk_ext = $1;
          if (defined($FILE_EXT{$_chk_ext})) {
             _myprintf("  MIB file: %s: found: %s\n", $_tag, $_chk_file) ;
             $_match++;
             push(@_mib_files, $_chk_file);
          }
+      }
+      elsif ($FILE_EXT{'noExt'}) {
+         _myprintf("  MIB file: %s: found: noExt %s\n", $_tag, $_chk_file);
+         $_match++;
+         push(@_mib_files, $_chk_file);
       }
    }
    if (scalar(@_mib_files)) {
@@ -311,9 +332,11 @@ sub _scan_file_list {
 #
 sub _parse_mib_file {
    my ($_def, $_import, $_lastline);
+   my $_begin_count      = 0;
    my $_definition_count = 0;
    my $_definition       = undef;
    my $_import_flag      = 0;
+   my $_end_count        = 0;
    my $_excl;
    my $_match            = 0;
    my %_DEF              = ();
@@ -344,6 +367,10 @@ sub _parse_mib_file {
       if (/^\s+$/)   {next;}
       if (/^--/)     {next;}
       if (/^\s+--/)  {next;}
+      
+       
+      $_begin_count++ if /\bBEGIN\s/;
+      $_end_count++ if /^END\b/;
       # parse out definitions
       if (/DEFINITIONS/) {
          if (/\b([A-Z][\-?\w]{0,63})\b\s+DEFINITIONS\s+::=\s+BEGIN/ )
@@ -362,10 +389,12 @@ sub _parse_mib_file {
             _track_it("$_definition", "defined in [$_[0]], line: $. type: $_TYPE");
             # see if DEF already known in other file
             if (defined($DEFINITIONS{$_definition}{file})) {
-               $ERROR = sprintf("file: %s DEF: %s previously defined in: %s",
-                        $_[0], $_definition, $DEFINITIONS{$_definition}{file}
+               $WARNING = sprintf("DEF: %s previously defined in: %s",
+                        $_definition, $DEFINITIONS{$_definition}{file}
                );
-               return(undef);
+               push(@WARNINGS, [$_[0], $WARNING] );
+               _myprintf("   %s\n", $WARNING);
+               return(1);
             }
 
             # set warning if more than one DEF per file
@@ -388,8 +417,14 @@ sub _parse_mib_file {
       if (/^END\s*$/) {
          # make sure we have hash entry for those with no imports
          if (!exists($_DEF{$_definition})) {$_DEF{$_definition} = '';}
-         $_definition  = undef;
-         $_import_flag = 0;
+         _myprintf("   END parsed: %s begins %s ends\n", $_begin_count, $_end_count);
+         if ($_begin_count == $_end_count) {
+            _myprintf("   END DEFINITION: %s begins %s ends %s\n", 
+               $_definition,$_begin_count, $_end_count
+            );
+            $_definition  = undef;
+            $_import_flag = 0;
+         }
       }
 
       # $_DEF{$_definition} will be a chunk that has the IMPORTS
@@ -768,7 +803,7 @@ Net::Dev::Tools::MIB::MIBLoadOrder - Parse MIB files and determine MIB Load Orde
 
 =head1 VERSION
 
-Net::Dev::Tools::MIB::MIBLoadOrder Version 1.0.1
+Net::Dev::Tools::MIB::MIBLoadOrder Version 1.1.0
 
 =head1 SYNOPSIS
 
@@ -786,7 +821,7 @@ Net::Dev::Tools::MIB::MIBLoadOrder Version 1.0.1
 
 
     mib_load_order();
-    @Net::Dev::Tools::MIB::MIBLoadOrder::@LOAD_ORDER
+    @Net::Dev::Tools::MIB::MIBLoadOrder::LOAD_ORDER
     
     mib_load_definitions();
     %Net::Dev::Tools::MIB::MIBLoadOrder::DEFINITIONS
@@ -855,9 +890,8 @@ Or this can be used to assure that certain files are put in the order first.
 StandardMIBs is search before EnterpriseMIBs. As a DEFINITION is found, the
 file that it was found in is stored with that DEFINITION. Multiple DEFINITIONs
 can be in one file, multiple files can not contain the same DEFINITION, in this
-case the function is aborted.
-
-
+case a warning is issued and the first DEFINITION is associated with the first
+file it was found in.
 
 =over 4
 
@@ -878,6 +912,9 @@ Files with any of these extensions are parsed.
 Default extension is 'mib'. If you define any 
 file extensions then 'mib' is not include, you will
 have to include this in your list.
+If you need to parse files without and extension, then
+use 'noExt' as an argument to --ext.
+
 
 =item -exclude
 
@@ -1019,7 +1056,8 @@ Each file stored is then parsed for DEFINITIONs and IMPORTs.
 If -exclude is defined and the file matches any string in the 
 exclude list, that file is not parsed, a warning is issued, denoted as _EXCL_.
 If no DEFINITION is found, a warning is stored, denoted as _FILE_.
-If more than one file contains the same DEFINTITION (modName) an error is returned.
+If more than one file contains the same DEFINTITION (modName) 
+then the DEFINITION is only associated with the first file.
 
 Weights are determined per DEFINITION. 
 Each DEFINITION is  assigned a weight of 2.
@@ -1036,7 +1074,7 @@ is made one greater than the highest EnterpriseMIB weight.
 
 All DEFINITIONs are check for warnings.
 If no files are stored for a DEFINITION, a warning is issued.
-If a DEFINITION is in more than one file, an error would of been returned.  
+If a DEFINITION is in more than one file, a warning is issued.  
 If files are dumped a warning is issued.
 
 Enter a loop to sort all weights. Each DEFINITION is examined, 
