@@ -13,7 +13,7 @@ use strict;
 
 BEGIN {
    use Exporter();
-   our $VERSION = '0.9.1';
+   our $VERSION = 0.9.2;
    our @ISA = qw(Exporter);
 
    our @EXPORT        = qw(
@@ -723,15 +723,15 @@ __END__
 
 =head1 NAME
 
-MIBLoadOrder - Parse MIB files and determine MIB Load Order.
+Net::Dev::Tools::MIB::MIBLoadOrder - Parse MIB files and determine MIB Load Order.
 
 =head1 VERSION
 
-MIBLoadOrder Version 0.9.1
+Net::Dev::Tools::MIB::MIBLoadOrder Version 0.9.2
 
 =head1 SYNOPSIS
 
-    use MIBLoadOrder;
+    use Net::Dev::Tools::MIB::MIBLoadOrder;
 
     ($load, $warn, $error) = mib_load(
        -StandardMIBs    =>  @StandardMIBs,   
@@ -746,22 +746,22 @@ MIBLoadOrder Version 0.9.1
 
 
     mib_load_order();
-    @MIBLoadOrder::@LOAD_ORDER
+    @Net::Dev::Tools::MIB::MIBLoadOrder::@LOAD_ORDER
     
     mib_load_definitions();
-    %MIBLoadOrder::DEFINITIONS
+    %Net::Dev::Tools::MIB::MIBLoadOrder::DEFINITIONS
 
     mib_load_warnings();
-    @MIBLoadOrder::WARNINGS
+    @Net::Dev::Tools::MIB::MIBLoadOrder::WARNINGS
 
     mib_load_error();
-    $MIBLoadOrder::ERROR
+    $Net::Dev::Tools::MIB::MIBLoadOrder::ERROR
 
     mib_load_trace()
-    %MIBLoadOrder::TRACK_HASH
+    %Net::Dev::Tools::MIB::MIBLoadOrder::TRACK_HASH
 
     mib_load_error
-    $MIBLoadOrder::ERROR
+    $Net::Dev::Tools::MIB::MIBLoadOrder::ERROR
 
 =head1 DESCRIPTION
 
@@ -893,7 +893,7 @@ user to know how they want to handle this situation.
 =head3 Load Order
 
     Direct Access
-        @MIBLoadOrder::@LOAD_ORDER
+        @Net::Dev::Tools::MIB::MIBLoadOrder::@LOAD_ORDER
 
     Function, returns a reference to array.
         mib_load_order()
@@ -904,7 +904,7 @@ user to know how they want to handle this situation.
 =head3 MIB Definitions
 
     Direct Access
-        %MIBLoadOrder::DEFINITIONS
+        %Net::Dev::Tools::MIB::MIBLoadOrder::DEFINITIONS
 
     Function, returns a reference to hash
         mib_load_definitions()
@@ -918,7 +918,7 @@ user to know how they want to handle this situation.
 =head3 Warnings
 
     Direct Access
-        @MIBLoadOrder::WARNINGS
+        @Net::Dev::Tools::MIB::MIBLoadOrder::WARNINGS
 
     Function, returns a reference to array of arrays
         mib_load_warnings()
@@ -930,7 +930,7 @@ user to know how they want to handle this situation.
 =head3 Errors
 
     Direct Access
-        $MIBLoadOrder::ERROR
+        $Net::Dev::Tools::MIB::MIBLoadOrder::ERROR
 
     Function, returns a string indicating the last error
         mib_load_error()
@@ -938,7 +938,7 @@ user to know how they want to handle this situation.
 =head3 Tracking
 
     Direct Access
-        %MIBLoadOrder::TRACK_HASH
+        %Net::Dev::Tools::MIB::MIBLoadOrder::TRACK_HASH
 
     Function, returns a reference to hash
         mib_load_trace()
@@ -952,15 +952,15 @@ user to know how they want to handle this situation.
 
 =head3 Other Variables
 
-    @MIBLoadOrder::WEIGHTS_SORTED = list of unique weights
+    @Net::Dev::Tools::MIB::MIBLoadOrder::WEIGHTS_SORTED = list of unique weights
 
-    $MIBLoadOrder::ORDER_LOOPS  = the number of loops the sort routine ran.
+    $Net::Dev::Tools::MIB::MIBLoadOrder::ORDER_LOOPS  = the number of loops the sort routine ran.
 
-    @MIBLoadOrder::STD_MIB_FILES = list of files tagged as Standard
+    @Net::Dev::Tools::MIB::MIBLoadOrder::STD_MIB_FILES = list of files tagged as Standard
 
-    @MIBLoadOrder::ENT_MIB_FILES = list of files tagged as Enterprise
+    @Net::Dev::Tools::MIB::MIBLoadOrder::ENT_MIB_FILES = list of files tagged as Enterprise
 
-    %MIBLoadOrder::FILE_EXT = hash of desired file extension
+    %Net::Dev::Tools::MIB::MIBLoadOrder::FILE_EXT = hash of desired file extension
 
 
 =head1 Operation
