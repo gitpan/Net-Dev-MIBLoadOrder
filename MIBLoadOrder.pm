@@ -12,6 +12,11 @@
 #                - grab DEF and IMPORT as chunks, then parse the chunck
 #            - took out -singlefile option
 #              - if a DEF is found in more than one file, function errors out
+#
+#  8/11/2004 v1.0.1 (sparsons)
+#            - changed MIB filehandle to be $_MIB, reason being install failure
+#              on some platforms, MIB filehandle treated as bareword
+#
 
 package Net::Dev::Tools::MIB::MIBLoadOrder;
 
@@ -19,7 +24,7 @@ use strict;
 
 BEGIN {
    use Exporter();
-   our $VERSION = '1.0.0';
+   our $VERSION = '1.0.1';
    our @ISA = qw(Exporter);
 
    our @EXPORT        = qw(
@@ -312,6 +317,7 @@ sub _parse_mib_file {
    my $_excl;
    my $_match            = 0;
    my %_DEF              = ();
+   my $_MIB;
 
    $ERROR = "$_[0]: failed to parse mib file"; 
 
@@ -331,9 +337,9 @@ sub _parse_mib_file {
    }
 
    # open and parse the file
-   close(MIB) if (MIB);
-   open(MIB, "$_[0]") || return (undef, "can not open $_[0]: $!");
-   while(<MIB>) {
+   undef $_MIB;
+   open($_MIB, "$_[0]") || return (undef, "can not open $_[0]: $!");
+   while(<$_MIB>) {
       if (/^$/)      {next;}
       if (/^\s+$/)   {next;}
       if (/^--/)     {next;}
@@ -394,7 +400,7 @@ sub _parse_mib_file {
 
       $_lastline = $_;
    }
-   close(MIB);
+   close($_MIB);
 
    # if no definition found, issue warning
    if ($_definition_count == 0) {
@@ -762,7 +768,7 @@ Net::Dev::Tools::MIB::MIBLoadOrder - Parse MIB files and determine MIB Load Orde
 
 =head1 VERSION
 
-Net::Dev::Tools::MIB::MIBLoadOrder Version 1.0.0
+Net::Dev::Tools::MIB::MIBLoadOrder Version 1.0.1
 
 =head1 SYNOPSIS
 
